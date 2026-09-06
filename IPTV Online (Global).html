@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPTV Online</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- HLS.js -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: '#0ea5e9', // Sky 500
+                        dark: '#09090b', // Zinc 950
+                        card: '#18181b' // Zinc 900
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { background-color: #09090b; color: white; }
+        .hide { display: none !important; }
+        
+        /* Custom Scrollbar minimalista */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+        .glass-header {
+            background: rgba(9, 9, 11, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        /* Efeito de canal ativo na lista */
+        .channel-active {
+            background-color: rgba(14, 165, 233, 0.1);
+            border-left: 3px solid #0ea5e9;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans">
+
+    <!-- Navbar -->
+    <nav class="glass-header sticky top-0 z-50 p-4">
+        <div class="max-w-4xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-2 cursor-pointer" onclick="showView('home')">
+                <div class="bg-brand w-8 h-8 rounded flex items-center justify-center shadow-lg shadow-brand/20">
+                    <i class="fa-solid fa-play text-white text-sm ml-1"></i>
+                </div>
+                <h1 class="text-xl font-bold tracking-tight">IPTV<span class="text-brand font-light">Online</span></h1>
+            </div>
+            <button id="btn-admin-login" onclick="openLoginModal()" class="text-xs font-medium text-zinc-400 hover:text-white transition flex items-center gap-2">
+                <i class="fa-solid fa-lock text-[10px]"></i> Admin
+            </button>
+            <button id="btn-admin-panel" onclick="showView('admin')" class="hide bg-brand/10 text-brand px-3 py-1.5 rounded text-xs font-semibold hover:bg-brand hover:text-white transition border border-brand/20">
+                <i class="fa-solid fa-gauge mr-1"></i> Painel
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow max-w-4xl mx-auto w-full p-4 relative flex flex-col gap-6">
+        
+        <!-- Estado Global de Carregamento -->
+        <div id="loading-state" class="absolute inset-0 z-40 bg-dark flex flex-col items-center justify-center pt-32 hide">
+            <i class="fa-solid fa-circle-notch fa-spin text-brand text-3xl mb-4"></i>
+            <p class="text-zinc-400 text-sm">Conectando aos servidores...</p>
+        </div>
+
+        <!-- VIEW: Home (Player + Lista Simples) -->
+        <div id="view-home" class="flex flex-col gap-6 w-full fade-in">
+            
+            <!-- PLAYER DESTAQUE -->
+            <div class="w-full bg-black rounded-xl overflow-hidden shadow-2xl relative border border-zinc-800 aspect-video group">
+                <video id="main-video-player" class="w-full h-full" controls playsinline></video>
+                
+                <!-- Overlay Inicial -->
+                <div id="player-overlay" class="absolute inset-0 bg-zinc-900 flex flex-col items-center justify-center z-10 transition-opacity duration-300">
+                    <i class="fa-solid fa-tv text-4xl text-zinc-700 mb-3"></i>
+                    <p class="text-zinc-500 text-sm">Selecione um canal abaixo para assistir</p>
+                </div>
+
+                <!-- Tela de Erro -->
+                <div id="player-error" class="absolute inset-0 bg-zinc-900/95 flex flex-col items-center justify-center p-6 text-center z-20 hide backdrop-blur-sm">
+                    <i class="fa-solid fa-triangle-exclamation text-red-500 text-3xl mb-3"></i>
+                    <p class="font-bold mb-1">Transmissão Indisponível</p>
+                    <p class="text-xs text-zinc-400 max-w-[250px]">O sinal deste canal caiu ou possui bloqueio de servidor.</p>
+                </div>
+            </div>
+
+            <!-- INFORMAÇÕES DO CANAL ATUAL -->
+            <div id="now-playing-info" class="flex items-center justify-between bg-card p-4 rounded-xl border border-zinc-800 hide">
+                <div>
+                    <p class="text-xs text-zinc-500 font-semibold uppercase tracking-wider mb-0.5" id="np-category">Categoria</p>
+                    <h2 class="text-xl font-bold" id="np-title">Nome do Canal</h2>
+                </div>
+                <!-- Status Piscando -->
+                <div class="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full">
+                    <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                    <span class="text-xs font-bold text-emerald-500 uppercase tracking-wider">Online</span>
+                </div>
+            </div>
+
+            <hr class="border-zinc-800">
+
+            <!-- LISTA DE CANAIS -->
+            <div class="flex flex-col gap-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-bold">Canais Disponíveis</h3>
+                    <div class="relative w-48 sm:w-64">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm"></i>
+                        <input type="text" id="search-input" onkeyup="filterChannels()" placeholder="Buscar canal..." class="w-full bg-card border border-zinc-800 rounded-lg py-2 pl-9 pr-3 text-sm focus:border-brand focus:outline-none transition">
+                    </div>
+                </div>
+
+                <!-- Container da Lista -->
+                <div id="channels-container" class="flex flex-col gap-6 min-h-[300px]">
+                    <!-- Renderizado via JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: Admin Panel -->
+        <div id="view-admin" class="hide flex flex-col gap-6 fade-in">
+            <div class="flex items-center justify-between bg-card p-4 rounded-xl border border-zinc-800">
+                <h2 class="text-lg font-bold flex items-center gap-2"><i class="fa-solid fa-shield-halved text-brand"></i> Administração Global</h2>
+                <button onclick="logoutAdmin()" class="text-red-400 hover:text-red-300 transition text-sm flex items-center gap-1">
+                    Sair <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
+            </div>
+
+            <!-- Adição Manual -->
+            <div class="bg-card p-5 rounded-xl border border-zinc-800">
+                <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">Adicionar Canal Manualmente</h3>
+                <form id="add-channel-form" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <input type="text" id="add-title" required placeholder="Nome do Canal (ex: Globo)" class="bg-dark border border-zinc-700 rounded p-2.5 text-sm focus:border-brand focus:outline-none">
+                    <input type="text" id="add-category" required placeholder="Categoria (ex: TV Aberta)" class="bg-dark border border-zinc-700 rounded p-2.5 text-sm focus:border-brand focus:outline-none">
+                    <input type="url" id="add-url" required placeholder="Link M3U8" class="bg-dark border border-zinc-700 rounded p-2.5 text-sm focus:border-brand focus:outline-none md:col-span-2">
+                    <button type="submit" class="bg-brand hover:bg-sky-400 text-white font-bold py-2.5 px-4 rounded transition text-sm">
+                        Adicionar
+                    </button>
+                </form>
+            </div>
+
+            <!-- Gerenciar Canais Adicionados -->
+            <div class="bg-card p-5 rounded-xl border border-zinc-800">
+                <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4">Canais no Servidor (Todos os Usuários)</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="text-zinc-500 border-b border-zinc-800">
+                            <tr>
+                                <th class="pb-2 font-medium">Nome</th>
+                                <th class="pb-2 font-medium">Categoria</th>
+                                <th class="pb-2 font-medium w-16 text-center">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-table-body" class="divide-y divide-zinc-800/50">
+                            <!-- JS injeção -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Ferramenta de Leitura M3U -->
+            <div class="bg-card p-5 rounded-xl border border-zinc-800 border-dashed">
+                <h3 class="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-2">Processador de Lista M3U Rápido</h3>
+                <p class="text-xs text-zinc-500 mb-4">Cole o texto da sua lista M3U. O sistema lerá nomes, categorias e links para você adicionar facilmente.</p>
+                <textarea id="m3u-input" class="w-full h-24 bg-dark border border-zinc-700 rounded p-3 text-xs font-mono focus:border-brand focus:outline-none resize-none mb-3" placeholder="#EXTM3U\n#EXTINF:-1 group-title=\x22Esportes\x22, ESPN\nhttp://link.m3u8"></textarea>
+                <button onclick="parseM3U()" class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white py-2 px-4 rounded transition text-sm w-full mb-4">
+                    Ler Lista
+                </button>
+                <div id="m3u-results" class="flex flex-col gap-2 max-h-64 overflow-y-auto pr-2">
+                    <!-- Resultados -->
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Modal Login -->
+    <div id="login-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center hide">
+        <div class="bg-card p-6 rounded-2xl border border-zinc-800 shadow-2xl w-full max-w-xs relative">
+            <button onclick="closeLoginModal()" class="absolute top-4 right-4 text-zinc-500 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            <h3 class="text-lg font-bold mb-1 text-center">Acesso Restrito</h3>
+            <p class="text-xs text-zinc-500 mb-6 text-center">Digite o PIN de administrador.</p>
+            <input type="password" id="admin-pin" class="w-full bg-dark border border-zinc-700 rounded-lg p-3 text-center text-2xl tracking-[0.5em] text-white focus:border-brand focus:outline-none mb-4" placeholder="••••">
+            <button onclick="verifyPin()" class="bg-white text-black hover:bg-zinc-200 font-bold py-2.5 px-4 rounded-lg transition w-full text-sm">
+                Entrar
+            </button>
+        </div>
+    </div>
+
+    <!-- FIREBASE & LOGIC -->
+    <script type="module">
+        // Importações Modulares do Firebase (Necessárias para o Firebase v11)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // 1. A SUA CONFIGURAÇÃO DO FIREBASE
+        const firebaseConfig = {
+            apiKey: "AIzaSyArvNP2h13KxuhrwUJJpOdb4WfAWsK6DBU",
+            authDomain: "iptvonline-95eb6.firebaseapp.com",
+            projectId: "iptvonline-95eb6",
+            storageBucket: "iptvonline-95eb6.firebasestorage.app",
+            messagingSenderId: "658691420311",
+            appId: "1:658691420311:web:87a9b43f1fc6741e30b9d2",
+            measurementId: "G-NKB1EL69GS"
+        };
+
+        // 2. INICIALIZAR FIREBASE
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const COLLECTION_PATH = ['artifacts', 'iptv-online', 'public', 'data', 'channels']; // Caminho seguro do banco
+
+        // Variáveis de Estado
+        let allChannels = [];
+        let currentPlayingId = null;
+        let hlsPlayer = null;
+        let isAdmin = false;
+        
+        const loadingEl = document.getElementById('loading-state');
+        const getCollectionRef = () => collection(db, ...COLLECTION_PATH);
+
+        // 3. AUTENTICAÇÃO ANÔNIMA INVISÍVEL (Obrigatória para o Firebase funcionar)
+        const initSystem = async () => {
+            loadingEl.classList.remove('hide');
+            try {
+                await signInAnonymously(auth);
+            } catch (error) {
+                console.error("Erro de Auth:", error);
+                alert("Erro ao conectar ao servidor central.");
+                loadingEl.classList.add('hide');
+            }
+        };
+
+        // Monitorar conexão e baixar canais em Tempo Real
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                // Escutar banco de dados global
+                onSnapshot(getCollectionRef(), (snapshot) => {
+                    allChannels = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    renderChannelsList();
+                    renderAdminTable();
+                    loadingEl.classList.add('hide');
+                }, (error) => {
+                    console.error("Erro no Banco:", error);
+                });
+            }
+        });
+
+        // -------------------------------------------------------------
+        // RENDERIZAÇÃO DA INTERFACE (Lista Limpa e Alfabética)
+        // -------------------------------------------------------------
+        window.renderChannelsList = (searchTerm = '') => {
+            const container = document.getElementById('channels-container');
+            container.innerHTML = '';
+
+            // Filtrar por pesquisa
+            let filtered = allChannels;
+            if (searchTerm) {
+                const term = searchTerm.toLowerCase();
+                filtered = allChannels.filter(c => 
+                    c.title.toLowerCase().includes(term) || c.category.toLowerCase().includes(term)
+                );
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div class="text-zinc-600 text-center py-10 text-sm">Nenhum canal encontrado.</div>';
+                return;
+            }
+
+            // Agrupar por categoria A-Z
+            const grouped = {};
+            filtered.forEach(ch => {
+                const cat = ch.category || 'Outros';
+                if(!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push(ch);
+            });
+
+            const sortedCategories = Object.keys(grouped).sort((a,b) => a.localeCompare(b));
+
+            sortedCategories.forEach(category => {
+                // Título da Categoria
+                const catTitle = document.createElement('h4');
+                catTitle.className = "text-zinc-500 font-bold text-xs uppercase tracking-widest mb-2 mt-4 flex items-center gap-2";
+                catTitle.innerHTML = `<i class="fa-solid fa-folder text-brand/50"></i> ${category}`;
+                container.appendChild(catTitle);
+
+                // Container da lista de canais desta categoria
+                const listDiv = document.createElement('div');
+                listDiv.className = "flex flex-col gap-1";
+
+                // Ordenar canais A-Z
+                const sortedChannels = grouped[category].sort((a,b) => a.title.localeCompare(b.title));
+
+                sortedChannels.forEach(ch => {
+                    const btn = document.createElement('button');
+                    const isActive = currentPlayingId === ch.id;
+                    
+                    btn.className = `w-full text-left p-3 rounded-lg flex items-center justify-between group transition-all ${isActive ? 'channel-active' : 'bg-card hover:bg-zinc-800/80 border border-transparent'}`;
+                    btn.onclick = () => window.playChannel(ch);
+
+                    btn.innerHTML = `
+                        <div class="flex items-center gap-3 truncate">
+                            <i class="fa-solid fa-play ${isActive ? 'text-brand' : 'text-zinc-700 group-hover:text-zinc-500'} text-xs"></i>
+                            <span class="text-sm font-medium ${isActive ? 'text-brand' : 'text-zinc-200'} truncate">${ch.title}</span>
+                        </div>
+                        <div class="text-xs font-semibold ${isActive ? 'text-brand' : 'text-zinc-600'} flex items-center gap-2">
+                            ${isActive ? '<span class="hidden sm:inline-block">TOCANDO</span> <div class="w-1.5 h-1.5 rounded-full bg-brand animate-pulse"></div>' : ''}
+                        </div>
+                    `;
+                    listDiv.appendChild(btn);
+                });
+
+                container.appendChild(listDiv);
+            });
+        };
+
+        window.filterChannels = () => {
+            const term = document.getElementById('search-input').value;
+            renderChannelsList(term);
+        };
+
+        // -------------------------------------------------------------
+        // PLAYER DE VÍDEO
+        // -------------------------------------------------------------
+        window.playChannel = (channelObj) => {
+            currentPlayingId = channelObj.id;
+            
+            // UI Updates
+            document.getElementById('player-overlay').classList.add('hide');
+            document.getElementById('player-error').classList.add('hide');
+            document.getElementById('now-playing-info').classList.remove('hide');
+            document.getElementById('np-title').innerText = channelObj.title;
+            document.getElementById('np-category').innerText = channelObj.category;
+            
+            // Scroll for mobile
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            // Redesenhar lista para destacar o selecionado
+            renderChannelsList(document.getElementById('search-input').value);
+
+            const video = document.getElementById('main-video-player');
+            
+            if (hlsPlayer) {
+                hlsPlayer.destroy();
+                hlsPlayer = null;
+            }
+
+            if (Hls.isSupported()) {
+                hlsPlayer = new Hls({
+                    maxBufferLength: 15, // Carrega mais rápido reduzindo o buffer
+                    maxMaxBufferLength: 30
+                });
+                hlsPlayer.loadSource(channelObj.url);
+                hlsPlayer.attachMedia(video);
+                hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
+                    video.play().catch(e => console.log("Auto-play block"));
+                });
+                hlsPlayer.on(Hls.Events.ERROR, (e, data) => {
+                    if (data.fatal) {
+                        document.getElementById('player-error').classList.remove('hide');
+                        hlsPlayer.destroy();
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = channelObj.url;
+                video.play();
+                video.onerror = () => document.getElementById('player-error').classList.remove('hide');
+            }
+        };
+
+        // -------------------------------------------------------------
+        // ADMINISTRAÇÃO E FIREBASE DB
+        // -------------------------------------------------------------
+        document.getElementById('add-channel-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if(!auth.currentUser) return;
+
+            const btn = e.target.querySelector('button');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            btn.disabled = true;
+
+            try {
+                await addDoc(getCollectionRef(), {
+                    title: document.getElementById('add-title').value.trim(),
+                    category: document.getElementById('add-category').value.trim(),
+                    url: document.getElementById('add-url').value.trim(),
+                    createdAt: Date.now()
+                });
+                e.target.reset();
+            } catch (error) {
+                console.error(error);
+                alert("Erro ao adicionar.");
+            } finally {
+                btn.innerHTML = 'Adicionar';
+                btn.disabled = false;
+            }
+        });
+
+        window.deleteChannel = async (id) => {
+            if(!auth.currentUser) return;
+            if(confirm("Remover este canal para TODOS os usuários?")) {
+                try {
+                    await deleteDoc(doc(db, ...COLLECTION_PATH, id));
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+        };
+
+        const renderAdminTable = () => {
+            const tbody = document.getElementById('admin-table-body');
+            tbody.innerHTML = '';
+            
+            // Ordenar admin list também A-Z
+            const sorted = [...allChannels].sort((a,b) => a.title.localeCompare(b.title));
+
+            sorted.forEach(ch => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="py-3 font-medium text-white">${ch.title}</td>
+                    <td class="py-3 text-zinc-400">${ch.category}</td>
+                    <td class="py-3 text-center">
+                        <button onclick="deleteChannel('${ch.id}')" class="text-red-500 hover:bg-red-500/20 p-2 rounded transition">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        };
+
+        // Leitor M3U
+        window.parseM3U = () => {
+            const text = document.getElementById('m3u-input').value;
+            const container = document.getElementById('m3u-results');
+            container.innerHTML = '';
+
+            const lines = text.split('\n');
+            let tempName = '';
+            let tempCat = 'Outros';
+
+            lines.forEach(line => {
+                line = line.trim();
+                if(line.startsWith('#EXTINF:')) {
+                    // Extrair Categoria
+                    const catMatch = line.match(/group-title="([^"]+)"/);
+                    tempCat = catMatch ? catMatch[1] : 'Outros';
+                    // Extrair Nome
+                    const parts = line.split(',');
+                    tempName = parts.length > 1 ? parts.slice(1).join(',').trim() : 'Desconhecido';
+                } 
+                else if (line.startsWith('http')) {
+                    if(tempName) {
+                        // Criar UI para adicionar
+                        const div = document.createElement('div');
+                        div.className = "flex justify-between items-center bg-dark p-2 rounded border border-zinc-800";
+                        div.innerHTML = `
+                            <div class="truncate text-xs">
+                                <span class="font-bold text-white">${tempName}</span> 
+                                <span class="text-zinc-500 ml-2">(${tempCat})</span>
+                            </div>
+                            <button onclick="quickAdd('${tempName.replace(/'/g, "\\'")}', '${tempCat.replace(/'/g, "\\'")}', '${line}')" class="bg-brand text-white px-2 py-1 rounded text-[10px] font-bold uppercase hover:bg-sky-400 transition ml-2 shrink-0">
+                                Add Ao Site
+                            </button>
+                        `;
+                        container.appendChild(div);
+                    }
+                    tempName = ''; 
+                    tempCat = 'Outros';
+                }
+            });
+            if(container.innerHTML === '') container.innerHTML = '<p class="text-xs text-zinc-500">Nenhum canal válido encontrado no texto.</p>';
+        };
+
+        window.quickAdd = async (title, category, url) => {
+            if(!auth.currentUser) return;
+            try {
+                await addDoc(getCollectionRef(), { title, category, url, createdAt: Date.now() });
+                alert(`${title} adicionado!`);
+            } catch (e) {
+                alert("Erro ao adicionar.");
+            }
+        };
+
+        // -------------------------------------------------------------
+        // NAVEGAÇÃO E MODAL (Globais)
+        // -------------------------------------------------------------
+        window.showView = (viewId) => {
+            document.getElementById('view-home').classList.add('hide');
+            document.getElementById('view-admin').classList.add('hide');
+            document.getElementById(`view-${viewId}`).classList.remove('hide');
+        };
+
+        window.openLoginModal = () => {
+            document.getElementById('login-modal').classList.remove('hide');
+            document.getElementById('admin-pin').value = '';
+            document.getElementById('admin-pin').focus();
+        };
+        window.closeLoginModal = () => document.getElementById('login-modal').classList.add('hide');
+
+        window.verifyPin = () => {
+            if (document.getElementById('admin-pin').value === '1234') {
+                isAdmin = true;
+                closeLoginModal();
+                document.getElementById('btn-admin-login').classList.add('hide');
+                document.getElementById('btn-admin-panel').classList.remove('hide');
+                showView('admin');
+            } else {
+                alert('PIN Incorreto');
+            }
+        };
+
+        window.logoutAdmin = () => {
+            isAdmin = false;
+            document.getElementById('btn-admin-login').classList.remove('hide');
+            document.getElementById('btn-admin-panel').classList.add('hide');
+            showView('home');
+        };
+
+        // Inicializar
+        document.addEventListener('DOMContentLoaded', () => {
+            initSystem();
+            document.getElementById('admin-pin').addEventListener('keypress', (e) => {
+                if(e.key === 'Enter') verifyPin();
+            });
+        });
+
+    </script>
+</body>
+</html>
