@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Partidas Online</title>
+    <!-- Tailwind CSS para estilização -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome para ícones -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- HLS.js para reprodução de IPTV (.m3u8) -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: '#10b981', // Emerald 500
+                        dark: '#111827',
+                        card: '#1f2937'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #111827; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .tab-active { border-bottom: 2px solid #10b981; color: #10b981; }
+        .hide { display: none !important; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Navbar -->
+    <nav class="bg-card border-b border-gray-800 p-4 sticky top-0 z-50">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-2 cursor-pointer" onclick="showView('home')">
+                <i class="fa-solid fa-futbol text-brand text-2xl"></i>
+                <h1 class="text-xl font-bold tracking-wider">PARTIDAS<span class="text-brand">ONLINE</span></h1>
+            </div>
+            <div>
+                <button id="btn-admin-login" onclick="openLoginModal()" class="text-gray-400 hover:text-white transition px-3 py-1 rounded">
+                    <i class="fa-solid fa-lock mr-1"></i> Admin
+                </button>
+                <button id="btn-admin-panel" onclick="showView('admin')" class="hide bg-brand text-white px-4 py-2 rounded font-semibold hover:bg-emerald-600 transition shadow-lg">
+                    <i class="fa-solid fa-gauge mr-1"></i> Painel
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow max-w-6xl mx-auto w-full p-4 relative">
+        
+        <!-- Loading Overlay Global -->
+        <div id="global-loading" class="absolute inset-0 z-40 bg-dark flex flex-col items-center justify-center pt-20">
+            <i class="fa-solid fa-circle-notch fa-spin text-brand text-4xl mb-4"></i>
+            <p class="text-gray-400">Conectando ao servidor...</p>
+        </div>
+
+        <!-- VIEW: Home (Lista de Jogos) -->
+        <div id="view-home" class="view-section hide fade-in">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold border-l-4 border-brand pl-3">Jogos ao Vivo Hoje</h2>
+                <div class="text-sm text-gray-400">
+                    <i class="fa-solid fa-circle text-red-500 animate-pulse text-xs mr-1"></i> Ao Vivo
+                </div>
+            </div>
+            
+            <div id="matches-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <!-- Matches will be injected here via JS -->
+            </div>
+            <div id="no-matches-msg" class="hide flex flex-col items-center justify-center py-20 text-gray-500">
+                <i class="fa-regular fa-calendar-xmark text-5xl mb-4 opacity-50"></i>
+                <p class="text-lg">Nenhuma partida disponível no momento.</p>
+            </div>
+        </div>
+
+        <!-- VIEW: Player (Assistir Jogo) -->
+        <div id="view-player" class="view-section hide fade-in">
+            <button onclick="showView('home')" class="mb-4 text-gray-400 hover:text-brand transition flex items-center gap-2">
+                <i class="fa-solid fa-arrow-left"></i> Voltar para os jogos
+            </button>
+            
+            <div class="bg-black w-full aspect-video rounded-lg overflow-hidden shadow-2xl relative border border-gray-800">
+                <video id="main-video-player" class="w-full h-full" controls playsinline></video>
+                <div id="player-error" class="absolute inset-0 bg-gray-900 bg-opacity-90 flex flex-col items-center justify-center p-6 text-center hide">
+                    <i class="fa-solid fa-triangle-exclamation text-yellow-500 text-4xl mb-3"></i>
+                    <p class="font-bold text-lg mb-1">Erro ao carregar o vídeo</p>
+                    <p class="text-sm text-gray-400 max-w-md">O link pode estar offline ou o servidor IPTV bloqueia a reprodução direta no navegador (CORS).</p>
+                    <button onclick="retryMainVideo()" class="mt-4 bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm transition">Tentar Novamente</button>
+                </div>
+            </div>
+            <h2 id="player-title" class="text-2xl font-bold mt-4">Carregando...</h2>
+            <div class="flex items-center gap-2 mt-2 text-sm text-gray-400">
+                <span class="bg-red-500 text-white px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider animate-pulse">Live</span>
+                <span id="player-status">Conectado</span>
+            </div>
+        </div>
+
+        <!-- VIEW: Admin Panel -->
+        <div id="view-admin" class="view-section hide fade-in">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold border-l-4 border-brand pl-3">Painel de Administração</h2>
+                <button onclick="logoutAdmin()" class="text-red-400 hover:text-red-300 transition text-sm">
+                    <i class="fa-solid fa-right-from-bracket"></i> Sair do Admin
+                </button>
+            </div>
+
+            <!-- Admin Tabs -->
+            <div class="flex border-b border-gray-700 mb-6">
+                <button onclick="switchAdminTab('manage')" id="tab-manage" class="px-4 py-2 font-semibold tab-active transition">
+                    <i class="fa-solid fa-list mr-2"></i> Gerenciar Jogos
+                </button>
+                <button onclick="switchAdminTab('tester')" id="tab-tester" class="px-4 py-2 font-semibold text-gray-400 hover:text-gray-200 transition">
+                    <i class="fa-solid fa-vial mr-2"></i> Testador de M3U
+                </button>
+            </div>
+
+            <!-- Tab Content: Manage Matches -->
+            <div id="admin-content-manage">
+                <div class="bg-card p-6 rounded-lg border border-gray-700 mb-6 shadow-lg">
+                    <h3 class="text-lg font-bold mb-4">Adicionar Nova Partida</h3>
+                    <form id="add-match-form" class="space-y-4">
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Título do Jogo (ex: Flamengo x Vasco)</label>
+                            <input type="text" id="input-title" required class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white focus:border-brand focus:outline-none" placeholder="Nome dos times...">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Link IPTV (.m3u8)</label>
+                            <input type="url" id="input-url" required class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white focus:border-brand focus:outline-none" placeholder="http://servidor.com/live/canal.m3u8">
+                        </div>
+                        <button type="submit" class="bg-brand hover:bg-emerald-600 text-white font-bold py-2 px-6 rounded transition w-full sm:w-auto">
+                            <i class="fa-solid fa-plus mr-1"></i> Adicionar Jogo
+                        </button>
+                    </form>
+                </div>
+
+                <h3 class="text-lg font-bold mb-4">Partidas Ativas</h3>
+                <div class="bg-card rounded-lg border border-gray-700 overflow-hidden shadow-lg">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-800 text-sm text-gray-400">
+                                <th class="p-3 font-medium">Título</th>
+                                <th class="p-3 font-medium hidden md:table-cell">Link M3U8</th>
+                                <th class="p-3 font-medium w-24 text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-matches-list" class="divide-y divide-gray-700">
+                            <!-- Admin matches injected here -->
+                        </tbody>
+                    </table>
+                    <div id="admin-no-matches" class="p-6 text-center text-gray-500 hide">
+                        Nenhuma partida cadastrada.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Content: M3U Tester -->
+            <div id="admin-content-tester" class="hide">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    
+                    <!-- Left: Input & List -->
+                    <div class="flex flex-col h-[600px]">
+                        <div class="bg-card p-4 rounded-t-lg border border-gray-700 border-b-0">
+                            <h3 class="font-bold mb-2">Cole sua Lista M3U Aqui</h3>
+                            <textarea id="m3u-input" class="w-full h-32 bg-gray-800 border border-gray-700 rounded p-2 text-white text-xs font-mono focus:border-brand focus:outline-none resize-none mb-2" placeholder="#EXTM3U\n#EXTINF:-1,Globo SP\nhttp://link.m3u8"></textarea>
+                            <button onclick="parseM3UList()" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded w-full transition font-semibold text-sm">
+                                <i class="fa-solid fa-magnifying-glass mr-1"></i> Ler Canais da Lista
+                            </button>
+                        </div>
+                        <div class="bg-card p-0 rounded-b-lg border border-gray-700 flex-grow overflow-hidden flex flex-col">
+                            <div class="bg-gray-800 p-2 text-xs text-gray-400 flex justify-between items-center border-b border-gray-700">
+                                <span id="m3u-count">0 canais encontrados</span>
+                                <input type="text" id="m3u-search" onkeyup="filterM3U()" placeholder="Buscar canal..." class="bg-gray-700 border-none rounded px-2 py-1 text-white w-32 focus:outline-none">
+                            </div>
+                            <div id="m3u-channels-list" class="overflow-y-auto flex-grow p-2 space-y-1">
+                                <!-- Channels injected here -->
+                                <div class="text-center text-gray-500 p-4 text-sm">Cole uma lista acima e clique em ler.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Preview Player -->
+                    <div class="flex flex-col">
+                        <div class="bg-card p-4 rounded-lg border border-gray-700 sticky top-20">
+                            <h3 class="font-bold mb-4 flex items-center justify-between">
+                                <span>Preview do Canal</span>
+                                <span id="preview-status" class="text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded">Aguardando</span>
+                            </h3>
+                            <div class="bg-black w-full aspect-video rounded overflow-hidden relative border border-gray-800 mb-4">
+                                <video id="preview-video-player" class="w-full h-full" controls playsinline></video>
+                                <div id="preview-error" class="absolute inset-0 bg-gray-900 bg-opacity-90 flex flex-col items-center justify-center p-4 text-center hide">
+                                    <i class="fa-solid fa-triangle-exclamation text-yellow-500 text-2xl mb-2"></i>
+                                    <p class="font-bold text-sm">Falha no Preview</p>
+                                    <p class="text-xs text-gray-400 mt-1">O link falhou ou possui bloqueio de CORS.</p>
+                                </div>
+                            </div>
+                            <div class="p-3 bg-gray-800 rounded border border-gray-700">
+                                <p id="preview-title" class="font-semibold text-brand mb-1">Nenhum canal selecionado</p>
+                                <p id="preview-url" class="text-xs text-gray-400 font-mono break-all line-clamp-2">---</p>
+                                
+                                <button id="btn-add-preview" onclick="addPreviewToMatches()" disabled class="mt-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 text-white py-2 px-4 rounded w-full transition font-semibold text-sm flex items-center justify-center gap-2">
+                                    <i class="fa-solid fa-share"></i> Enviar para Partidas ao Vivo
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center hide transition-opacity">
+        <div class="bg-card p-6 rounded-lg border border-gray-700 shadow-2xl w-full max-w-sm relative">
+            <button onclick="closeLoginModal()" class="absolute top-3 right-3 text-gray-500 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            <h3 class="text-xl font-bold mb-4 flex items-center"><i class="fa-solid fa-shield-halved text-brand mr-2"></i> Acesso Admin</h3>
+            <p class="text-sm text-gray-400 mb-4">Digite o PIN para acessar o painel. (Dica: é 1234)</p>
+            <input type="password" id="admin-pin" class="w-full bg-gray-800 border border-gray-700 rounded p-3 text-center text-2xl tracking-widest text-white focus:border-brand focus:outline-none mb-4" placeholder="****">
+            <button onclick="verifyPin()" class="bg-brand hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded transition w-full">
+                Acessar
+            </button>
+            <p id="pin-error" class="text-red-400 text-sm mt-2 text-center hide">PIN Incorreto!</p>
+        </div>
+    </div>
+
+    <!-- Firebase SDK Modular -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global State & Firebase Config
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            // Fallback for local testing if needed, though canvas provides this
+        };
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'partidas-online-app';
+        
+        let app, auth, db, user;
+        let matches = []; // Local memory array for sorting
+        let isAdmin = false;
+        
+        // HLS Players
+        let mainHls = null;
+        let previewHls = null;
+        let currentPlayingUrl = '';
+
+        // Initialize App
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch(e) {
+            console.error("Firebase init erro:", e);
+        }
+
+        // Firebase Auth Init (MANDATORY RULE 3)
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Authentication failed:", error);
+                document.getElementById('global-loading').innerHTML = '<p class="text-red-500">Erro de conexão. Tente recarregar a página.</p>';
+            }
+        };
+
+        // UI Manipulation Functions (Attached to window for inline HTML handlers)
+        window.showView = (viewId) => {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.add('hide'));
+            document.getElementById(`view-${viewId}`).classList.remove('hide');
+            
+            // Cleanup video when leaving player
+            if(viewId !== 'player' && mainHls) {
+                const video = document.getElementById('main-video-player');
+                video.pause();
+                video.src = "";
+                if(mainHls) mainHls.destroy();
+                mainHls = null;
+            }
+            // Cleanup preview when leaving admin
+            if(viewId !== 'admin' && previewHls) {
+                const video = document.getElementById('preview-video-player');
+                video.pause();
+                video.src = "";
+                if(previewHls) previewHls.destroy();
+                previewHls = null;
+            }
+        };
+
+        window.openLoginModal = () => {
+            document.getElementById('login-modal').classList.remove('hide');
+            document.getElementById('admin-pin').value = '';
+            document.getElementById('admin-pin').focus();
+            document.getElementById('pin-error').classList.add('hide');
+        };
+
+        window.closeLoginModal = () => document.getElementById('login-modal').classList.add('hide');
+
+        window.verifyPin = () => {
+            const pin = document.getElementById('admin-pin').value;
+            if (pin === '1234') { // Simple PIN for demo purposes
+                isAdmin = true;
+                closeLoginModal();
+                document.getElementById('btn-admin-login').classList.add('hide');
+                document.getElementById('btn-admin-panel').classList.remove('hide');
+                window.showView('admin');
+            } else {
+                document.getElementById('pin-error').classList.remove('hide');
+            }
+        };
+
+        window.logoutAdmin = () => {
+            isAdmin = false;
+            document.getElementById('btn-admin-login').classList.remove('hide');
+            document.getElementById('btn-admin-panel').classList.add('hide');
+            window.showView('home');
+        };
+
+        window.switchAdminTab = (tab) => {
+            document.getElementById('tab-manage').classList.remove('tab-active', 'text-gray-400');
+            document.getElementById('tab-tester').classList.remove('tab-active', 'text-gray-400');
+            
+            if(tab === 'manage') {
+                document.getElementById('tab-manage').classList.add('tab-active');
+                document.getElementById('tab-tester').classList.add('text-gray-400');
+                document.getElementById('admin-content-manage').classList.remove('hide');
+                document.getElementById('admin-content-tester').classList.add('hide');
+            } else {
+                document.getElementById('tab-tester').classList.add('tab-active');
+                document.getElementById('tab-manage').classList.add('text-gray-400');
+                document.getElementById('admin-content-tester').classList.remove('hide');
+                document.getElementById('admin-content-manage').classList.add('hide');
+            }
+        };
+
+        // Render functions
+        const renderMatches = () => {
+            const grid = document.getElementById('matches-grid');
+            const noMsg = document.getElementById('no-matches-msg');
+            const adminList = document.getElementById('admin-matches-list');
+            const adminNoMsg = document.getElementById('admin-no-matches');
+
+            grid.innerHTML = '';
+            adminList.innerHTML = '';
+
+            // Sort matches in memory (RULE 2)
+            const sortedMatches = [...matches].sort((a, b) => b.createdAt - a.createdAt);
+
+            if (sortedMatches.length === 0) {
+                noMsg.classList.remove('hide');
+                adminNoMsg.classList.remove('hide');
+            } else {
+                noMsg.classList.add('hide');
+                adminNoMsg.classList.add('hide');
+
+                sortedMatches.forEach(match => {
+                    // Home Grid Item
+                    const card = document.createElement('div');
+                    card.className = "bg-card border border-gray-800 rounded-lg overflow-hidden hover:border-brand transition cursor-pointer group shadow-lg";
+                    card.onclick = () => playMatch(match);
+                    card.innerHTML = `
+                        <div class="h-32 bg-gray-800 flex items-center justify-center relative overflow-hidden">
+                            <i class="fa-solid fa-play text-4xl text-gray-600 group-hover:text-brand transition group-hover:scale-110"></i>
+                            <div class="absolute top-2 left-2 bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">Ao Vivo</div>
+                        </div>
+                        <div class="p-4">
+                            <h3 class="font-bold text-lg mb-1 truncate" title="${match.title}">${match.title}</h3>
+                            <div class="flex items-center text-xs text-gray-400 gap-1">
+                                <i class="fa-solid fa-tower-broadcast text-brand"></i> Transmissão Online
+                            </div>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+
+                    // Admin Table Row
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-800 transition";
+                    tr.innerHTML = `
+                        <td class="p-3">
+                            <div class="font-bold">${match.title}</div>
+                            <div class="text-xs text-gray-500 md:hidden truncate max-w-[150px]">${match.url}</div>
+                        </td>
+                        <td class="p-3 hidden md:table-cell text-gray-400 text-sm font-mono truncate max-w-xs" title="${match.url}">${match.url}</td>
+                        <td class="p-3 text-center">
+                            <button onclick="deleteMatch('${match.id}')" class="text-red-500 hover:text-red-400 hover:bg-red-500 hover:bg-opacity-20 p-2 rounded transition" title="Deletar">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </td>
+                    `;
+                    adminList.appendChild(tr);
+                });
+            }
+        };
+
+        // Video Player Logic
+        window.playMatch = (match) => {
+            currentPlayingUrl = match.url;
+            document.getElementById('player-title').innerText = match.title;
+            window.showView('player');
+            initHLSPlayer(match.url, 'main-video-player', 'mainHls', 'player-error');
+        };
+
+        window.retryMainVideo = () => {
+            if(currentPlayingUrl) {
+                initHLSPlayer(currentPlayingUrl, 'main-video-player', 'mainHls', 'player-error');
+            }
+        };
+
+        const initHLSPlayer = (url, videoElementId, hlsVarName, errorElementId) => {
+            const video = document.getElementById(videoElementId);
+            const errorDiv = document.getElementById(errorElementId);
+            errorDiv.classList.add('hide');
+
+            // Destroy previous instance if exists in the global variable
+            if (window[hlsVarName]) {
+                window[hlsVarName].destroy();
+                window[hlsVarName] = null;
+            }
+
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    debug: false,
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                });
+                
+                window[hlsVarName] = hls;
+
+                hls.loadSource(url);
+                hls.attachMedia(video);
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    if(errorElementId === 'preview-error') document.getElementById('preview-status').innerText = 'Tocando';
+                    video.play().catch(e => console.log("Autoplay prevented", e));
+                });
+
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.error("Network error");
+                                hls.destroy();
+                                errorDiv.classList.remove('hide');
+                                if(errorElementId === 'preview-error') document.getElementById('preview-status').innerText = 'Erro';
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.error("Media error, trying to recover");
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                hls.destroy();
+                                errorDiv.classList.remove('hide');
+                                if(errorElementId === 'preview-error') document.getElementById('preview-status').innerText = 'Erro';
+                                break;
+                        }
+                    }
+                });
+            }
+            // For Safari native HLS support
+            else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = url;
+                video.addEventListener('loadedmetadata', function() {
+                    video.play();
+                });
+                video.addEventListener('error', function() {
+                    errorDiv.classList.remove('hide');
+                });
+            } else {
+                errorDiv.innerHTML = '<p class="font-bold">Seu navegador não suporta reprodução de vídeo HLS.</p>';
+                errorDiv.classList.remove('hide');
+            }
+        };
+
+        // M3U Tester Logic
+        let parsedChannels = [];
+        let currentPreview = null;
+
+        window.parseM3UList = () => {
+            const content = document.getElementById('m3u-input').value;
+            if(!content.trim()) return;
+
+            const lines = content.split('\n');
+            parsedChannels = [];
+            let currentName = 'Canal Sem Nome';
+
+            for(let line of lines) {
+                line = line.trim();
+                if(line.startsWith('#EXTINF:')) {
+                    // Try to get channel name after the last comma
+                    const parts = line.split(',');
+                    currentName = parts.length > 1 ? parts.slice(1).join(',').trim() : 'Canal Sem Nome';
+                } else if(line && !line.startsWith('#')) {
+                    // It's likely an URL
+                    if(line.startsWith('http')) {
+                        parsedChannels.push({ name: currentName, url: line });
+                    }
+                    currentName = 'Canal Sem Nome'; // reset for next
+                }
+            }
+            
+            document.getElementById('m3u-search').value = '';
+            renderM3UChannels(parsedChannels);
+        };
+
+        window.filterM3U = () => {
+            const term = document.getElementById('m3u-search').value.toLowerCase();
+            const filtered = parsedChannels.filter(c => c.name.toLowerCase().includes(term));
+            renderM3UChannels(filtered);
+        };
+
+        const renderM3UChannels = (channels) => {
+            const list = document.getElementById('m3u-channels-list');
+            document.getElementById('m3u-count').innerText = `${channels.length} canais encontrados`;
+            list.innerHTML = '';
+            
+            if(channels.length === 0) {
+                list.innerHTML = '<div class="text-center text-gray-500 p-4 text-sm">Nenhum canal encontrado.</div>';
+                return;
+            }
+
+            channels.forEach(ch => {
+                const div = document.createElement('div');
+                div.className = "flex justify-between items-center p-2 hover:bg-gray-700 bg-gray-800 rounded border border-gray-700 group transition";
+                div.innerHTML = `
+                    <div class="truncate pr-2 flex-grow">
+                        <p class="text-sm font-semibold truncate" title="${ch.name}">${ch.name}</p>
+                    </div>
+                    <button onclick="previewChannel('${ch.name.replace(/'/g, "\\'")}', '${ch.url}')" class="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded transition flex-shrink-0">
+                        <i class="fa-solid fa-play"></i> Testar
+                    </button>
+                `;
+                list.appendChild(div);
+            });
+        };
+
+        window.previewChannel = (name, url) => {
+            currentPreview = { title: name, url: url };
+            document.getElementById('preview-title').innerText = name;
+            document.getElementById('preview-url').innerText = url;
+            document.getElementById('preview-status').innerText = 'Carregando...';
+            document.getElementById('btn-add-preview').disabled = false;
+            
+            initHLSPlayer(url, 'preview-video-player', 'previewHls', 'preview-error');
+        };
+
+        window.addPreviewToMatches = async () => {
+            if(!currentPreview || !user) return;
+            const btn = document.getElementById('btn-add-preview');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Adicionando...';
+            
+            try {
+                const matchesRef = collection(db, 'artifacts', appId, 'public', 'data', 'matches');
+                await addDoc(matchesRef, {
+                    title: currentPreview.title,
+                    url: currentPreview.url,
+                    createdAt: Date.now()
+                });
+                
+                // Show success feedback
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> Adicionado com Sucesso!';
+                btn.classList.replace('bg-emerald-600', 'bg-green-600');
+                setTimeout(() => {
+                    btn.innerHTML = '<i class="fa-solid fa-share"></i> Enviar para Partidas ao Vivo';
+                    btn.classList.replace('bg-green-600', 'bg-emerald-600');
+                    btn.disabled = false;
+                }, 2000);
+
+            } catch (error) {
+                console.error("Error adding:", error);
+                alert("Erro ao adicionar partida.");
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-share"></i> Enviar para Partidas ao Vivo';
+            }
+        };
+
+        // Firebase Operations
+        document.getElementById('add-match-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!user) return;
+
+            const titleInput = document.getElementById('input-title');
+            const urlInput = document.getElementById('input-url');
+            const submitBtn = e.target.querySelector('button');
+            const originalBtnHtml = submitBtn.innerHTML;
+            
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+            try {
+                const matchesRef = collection(db, 'artifacts', appId, 'public', 'data', 'matches');
+                await addDoc(matchesRef, {
+                    title: titleInput.value.trim(),
+                    url: urlInput.value.trim(),
+                    createdAt: Date.now()
+                });
+                titleInput.value = '';
+                urlInput.value = '';
+                switchAdminTab('manage'); // focus back to list
+            } catch (error) {
+                console.error("Error adding match: ", error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtnHtml;
+            }
+        });
+
+        window.deleteMatch = async (id) => {
+            if(!user) return;
+            if(confirm("Deseja realmente remover esta partida?")) {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'matches', id));
+                } catch(error) {
+                    console.error("Error deleting match: ", error);
+                }
+            }
+        };
+
+        // Firebase Realtime Listener
+        const setupMatchesListener = () => {
+            if (!user) return;
+            const matchesRef = collection(db, 'artifacts', appId, 'public', 'data', 'matches');
+            
+            // Note: Following RULE 2, no complex queries, fetch all and sort in memory
+            onSnapshot(matchesRef, (snapshot) => {
+                matches = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+                renderMatches();
+                document.getElementById('global-loading').classList.add('hide');
+            }, (error) => {
+                console.error("Snapshot error:", error);
+                document.getElementById('global-loading').innerHTML = '<p class="text-red-500">Erro ao carregar dados.</p>';
+            });
+        };
+
+        // Initialize Application Flow
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check enter key for PIN
+            document.getElementById('admin-pin').addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') verifyPin();
+            });
+
+            // Start Firebase Auth Flow
+            initAuth();
+            
+            // Listen to auth state
+            onAuthStateChanged(auth, (currentUser) => {
+                user = currentUser;
+                if (user) {
+                    setupMatchesListener();
+                } else {
+                    document.getElementById('global-loading').innerHTML = '<p class="text-red-500">Autenticação necessária.</p>';
+                }
+            });
+        });
+
+    </script>
+</body>
+</html>
